@@ -1,4 +1,5 @@
 use super::*;
+use crate::agent::status::is_final;
 use crate::session::InputQueueActivity;
 use crate::tools::handlers::multi_agents_spec::WaitAgentTimeoutOptions;
 use crate::tools::handlers::multi_agents_spec::create_wait_agent_tool_v2;
@@ -91,8 +92,26 @@ impl Handler {
             )
             .await;
 
-        let deadline = Instant::now() + Duration::from_millis(timeout_ms as u64);
-        let outcome = wait_for_activity(&mut activity_rx, pending_activity, deadline).await;
+        let wait_duration = Duration::from_millis(timeout_ms as u64);
+        let mut outcome = wait_for_activity(
+            &mut activity_rx,
+            pending_activity,
+            Instant::now() + wait_duration,
+        )
+        .await;
+        // A quiet interval is only a control-plane checkpoint while another agent can still
+        // produce mail. Returning it to the model would turn long waits into repeated inference.
+        while outcome == WaitOutcome::TimedOut
+            && timeout_ms > 0
+            && has_other_live_agents(&session, &turn).await
+        {
+            outcome = wait_for_activity(
+                &mut activity_rx,
+                /*pending_activity*/ None,
+                Instant::now() + wait_duration,
+            )
+            .await;
+        }
         let result = WaitAgentResult::from_outcome(outcome, requested_timeout_ms, timeout_ms);
 
         session
@@ -115,6 +134,31 @@ impl Handler {
 
         Ok(boxed_tool_output(result))
     }
+}
+
+async fn has_other_live_agents(
+    session: &crate::session::session::Session,
+    turn: &crate::session::turn_context::TurnContext,
+) -> bool {
+    session
+        .services
+        .agent_control
+        .register_session_root(session.thread_id, turn.parent_thread_id);
+    let current_agent = turn
+        .session_source
+        .get_agent_path()
+        .unwrap_or_else(AgentPath::root)
+        .to_string();
+    session
+        .services
+        .agent_control
+        .list_agents(&turn.session_source, /*path_prefix*/ None)
+        .await
+        .is_ok_and(|agents| {
+            agents
+                .into_iter()
+                .any(|agent| agent.agent_name != current_agent && !is_final(&agent.agent_status))
+        })
 }
 
 impl CoreToolRuntime for Handler {

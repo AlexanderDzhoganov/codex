@@ -2857,7 +2857,7 @@ async fn wait_agent_rejects_empty_targets() {
 }
 
 #[tokio::test]
-async fn multi_agent_v2_wait_agent_accepts_timeout_only_argument() {
+async fn multi_agent_v2_wait_agent_rearms_timeout_while_an_agent_is_live() {
     let (mut session, mut turn) = make_session_and_context().await;
     let manager = thread_manager();
     let root = manager
@@ -2871,6 +2871,9 @@ async fn multi_agent_v2_wait_agent_accepts_timeout_only_argument() {
         .features
         .enable(Feature::MultiAgentV2)
         .expect("test config should allow feature update");
+    config.multi_agent_v2.min_wait_timeout_ms = 10;
+    config.multi_agent_v2.max_wait_timeout_ms = 10;
+    config.multi_agent_v2.default_wait_timeout_ms = 10;
     set_turn_config(&mut turn, config);
     let session = Arc::new(session);
     let turn = Arc::new(turn);
@@ -2910,12 +2913,16 @@ async fn multi_agent_v2_wait_agent_accepts_timeout_only_argument() {
                     session,
                     turn,
                     "wait_agent",
-                    function_payload(json!({"timeout_ms": 10_000})),
+                    function_payload(json!({"timeout_ms": 10})),
                 ))
                 .await
         }
     });
-    tokio::task::yield_now().await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert!(
+        !wait_task.is_finished(),
+        "a quiet timeout should be re-armed while the worker is live"
+    );
 
     session
         .input_queue

@@ -2529,8 +2529,8 @@ async fn plaintext_multi_agent_v2_completion_sends_agent_message(
     let notification = format!(
         "Message Type: FINAL_ANSWER\nTask name: /root\nSender: /root/worker\nPayload:\n{payload}"
     );
-    // If the child is still running when the parent turn starts, wait_agent blocks
-    // until mailbox delivery. The follow-up request must then contain that delivery.
+    // The child takes much longer than the configured wait interval. wait_agent must
+    // re-arm that interval internally and follow up only after mail arrives.
     mount_sse_once_match(
         &server,
         |req: &wiremock::Request| {
@@ -2574,6 +2574,9 @@ async fn plaintext_multi_agent_v2_completion_sends_agent_message(
                 .features
                 .enable(Feature::MultiAgentV2)
                 .expect("test config should allow feature update");
+            config.multi_agent_v2.min_wait_timeout_ms = 10;
+            config.multi_agent_v2.max_wait_timeout_ms = 10;
+            config.multi_agent_v2.default_wait_timeout_ms = 10;
             config.model_provider.request_max_retries = Some(0);
             config.model_provider.stream_max_retries = Some(0);
             config.model_provider.supports_websockets = false;

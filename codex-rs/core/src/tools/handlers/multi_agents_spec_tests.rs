@@ -434,7 +434,7 @@ fn followup_task_tool_requires_message_and_has_no_output_schema() {
 }
 
 #[test]
-fn wait_agent_tool_v2_uses_timeout_only_summary_output() {
+fn wait_agent_tool_v2_describes_event_driven_waiting() {
     let ToolSpec::Function(ResponsesApiTool {
         description,
         parameters,
@@ -458,14 +458,14 @@ fn wait_agent_tool_v2_uses_timeout_only_summary_output() {
         .expect("wait_agent should use object params");
     assert!(!properties.contains_key("targets"));
     assert!(properties.contains_key("timeout_ms"));
-    assert!(description.contains(
-        "Does not return the content; returns either a summary of which agents have updates (if any)"
-    ));
+    assert!(description.contains("Quiet timeout intervals are re-armed internally"));
     assert_eq!(
         properties
             .get("timeout_ms")
             .and_then(|schema| schema.description.as_deref()),
-        Some("Timeout in milliseconds. Defaults to 30000, min 10000, max 3600000.")
+        Some(
+            "Quiet polling interval in milliseconds. Defaults to 30000, min 10000, max 3600000. While another agent is live, elapsed intervals are re-armed inside the tool instead of triggering another model turn."
+        )
     );
     assert_eq!(parameters.required.as_ref(), None);
     assert_eq!(
