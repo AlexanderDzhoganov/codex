@@ -80,7 +80,9 @@ if ! command -v cargo >/dev/null 2>&1; then
   . "$HOME/.cargo/env"
 fi
 
-build_dir="$(mktemp -d "${TMPDIR:-/tmp}/codex-wait-fix.XXXXXX")"
+cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}"
+mkdir -p "$cache_dir"
+build_dir="$(mktemp -d "$cache_dir/codex-wait-fix.XXXXXX")"
 cleanup() {
   rm -rf -- "$build_dir"
 }
@@ -95,7 +97,10 @@ git -C "$build_dir" checkout -q --detach FETCH_HEAD
 step "Building Codex (this can take several minutes)"
 (
   cd "$build_dir/codex-rs"
-  cargo build --locked --release -p codex-cli --bin codex
+  CARGO_PROFILE_RELEASE_DEBUG=0 \
+    CARGO_PROFILE_RELEASE_LTO=false \
+    CARGO_PROFILE_RELEASE_STRIP=symbols \
+    cargo build --locked --release -p codex-cli --bin codex
 )
 
 step "Downloading the official Codex runtime helper"
