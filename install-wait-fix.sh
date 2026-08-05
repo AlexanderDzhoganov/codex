@@ -95,17 +95,30 @@ git -C "$build_dir" checkout -q --detach FETCH_HEAD
 step "Building Codex (this can take several minutes)"
 (
   cd "$build_dir/codex-rs"
-  cargo build --locked --release \
-    -p codex-cli --bin codex \
-    -p codex-code-mode-host --bin codex-code-mode-host
+  cargo build --locked --release -p codex-cli --bin codex
 )
+
+step "Downloading the official Codex runtime helper"
+runtime_home="$build_dir/official-home"
+runtime_codex_home="$runtime_home/.codex"
+runtime_bin="$build_dir/official-bin"
+mkdir -p "$runtime_home" "$runtime_bin"
+curl -fsSL "$VANILLA_INSTALLER_URL" | \
+  HOME="$runtime_home" \
+  CODEX_HOME="$runtime_codex_home" \
+  CODEX_INSTALL_DIR="$runtime_bin" \
+  CODEX_NON_INTERACTIVE=true \
+  sh
+runtime_host="$runtime_codex_home/packages/standalone/current/bin/codex-code-mode-host"
+if [ ! -x "$runtime_host" ]; then
+  printf 'The official Codex package did not contain codex-code-mode-host.\n' >&2
+  exit 1
+fi
 
 step "Installing Codex to $CODEX_FIX_BIN_DIR"
 mkdir -p "$CODEX_FIX_BIN_DIR"
 install -m 0755 "$build_dir/codex-rs/target/release/codex" "$CODEX_FIX_BIN_DIR/codex"
-install -m 0755 \
-  "$build_dir/codex-rs/target/release/codex-code-mode-host" \
-  "$CODEX_FIX_BIN_DIR/codex-code-mode-host"
+install -m 0755 "$runtime_host" "$CODEX_FIX_BIN_DIR/codex-code-mode-host"
 mkdir -p "$CODEX_FIX_STATE_DIR"
 printf '%s\n' "$CODEX_FIX_REF" >"$CODEX_FIX_STATE_FILE"
 add_to_path
