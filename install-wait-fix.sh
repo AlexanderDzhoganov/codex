@@ -32,10 +32,6 @@ pick_profile() {
 }
 
 add_to_path() {
-  case ":$PATH:" in
-    *":$CODEX_FIX_BIN_DIR:"*) return ;;
-  esac
-
   local profile path_line
   profile="$(pick_profile)"
   path_line="export PATH=\"$CODEX_FIX_BIN_DIR:\$PATH\""
