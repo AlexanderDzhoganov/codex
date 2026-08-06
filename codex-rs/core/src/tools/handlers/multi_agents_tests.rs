@@ -80,6 +80,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
+use std::time::Instant;
 use tokio::sync::Mutex;
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
@@ -2872,7 +2873,7 @@ async fn multi_agent_v2_wait_agent_rearms_timeout_while_an_agent_is_live() {
         .enable(Feature::MultiAgentV2)
         .expect("test config should allow feature update");
     config.multi_agent_v2.min_wait_timeout_ms = 10;
-    config.multi_agent_v2.max_wait_timeout_ms = 10;
+    config.multi_agent_v2.max_wait_timeout_ms = 1_000;
     config.multi_agent_v2.default_wait_timeout_ms = 10;
     set_turn_config(&mut turn, config);
     let session = Arc::new(session);
@@ -2950,6 +2951,71 @@ async fn multi_agent_v2_wait_agent_rearms_timeout_while_an_agent_is_live() {
         crate::tools::handlers::multi_agents_v2::wait::WaitAgentResult {
             message: "Wait completed.".to_string(),
             timed_out: false,
+        }
+    );
+    assert_eq!(success, None);
+}
+
+#[tokio::test]
+async fn multi_agent_v2_wait_agent_stops_at_configured_maximum_while_agent_is_running() {
+    let (mut session, mut turn) = make_session_and_context().await;
+    let manager = thread_manager();
+    let root = manager
+        .start_thread(StartThreadOptions::new((*turn.config).clone()))
+        .await
+        .expect("root thread should start");
+    session.services.agent_control = manager.agent_control();
+    session.thread_id = root.thread_id;
+    let mut config = (*turn.config).clone();
+    config
+        .features
+        .enable(Feature::MultiAgentV2)
+        .expect("test config should allow feature update");
+    config.multi_agent_v2.min_wait_timeout_ms = 10;
+    config.multi_agent_v2.max_wait_timeout_ms = 80;
+    config.multi_agent_v2.default_wait_timeout_ms = 10;
+    set_turn_config(&mut turn, config);
+    let session = Arc::new(session);
+    let turn = Arc::new(turn);
+
+    SpawnAgentHandlerV2::default()
+        .handle(invocation(
+            session.clone(),
+            turn.clone(),
+            "spawn_agent",
+            function_payload(json!({
+                "message": "boot worker",
+                "task_name": "worker"
+            })),
+        ))
+        .await
+        .expect("spawn worker");
+
+    let started = Instant::now();
+    let output = timeout(
+        Duration::from_secs(/*secs*/ 1),
+        WaitAgentHandlerV2::default().handle(invocation(
+            session,
+            turn,
+            "wait_agent",
+            function_payload(json!({"timeout_ms": 10})),
+        )),
+    )
+    .await
+    .expect("wait_agent should honor the configured maximum")
+    .expect("wait_agent should succeed");
+    assert!(
+        started.elapsed() >= Duration::from_millis(70),
+        "a running worker should keep the wait armed until the configured maximum"
+    );
+    let (content, success) = expect_text_output(output);
+    let result: crate::tools::handlers::multi_agents_v2::wait::WaitAgentResult =
+        serde_json::from_str(&content).expect("wait_agent result should be json");
+    assert_eq!(
+        result,
+        crate::tools::handlers::multi_agents_v2::wait::WaitAgentResult {
+            message: "Wait timed out.".to_string(),
+            timed_out: true,
         }
     );
     assert_eq!(success, None);

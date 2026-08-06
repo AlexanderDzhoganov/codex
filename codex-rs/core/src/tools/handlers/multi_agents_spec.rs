@@ -284,7 +284,7 @@ pub fn create_wait_agent_tool_v1(options: WaitAgentTimeoutOptions) -> ToolSpec {
 pub fn create_wait_agent_tool_v2(options: WaitAgentTimeoutOptions) -> ToolSpec {
     ToolSpec::Function(ResponsesApiTool {
         name: "wait_agent".to_string(),
-        description: "Wait for a mailbox update from any live agent, including queued messages and final-status notifications. The wait also ends early when new user input is steered into the active turn. Quiet timeout intervals are re-armed internally while another agent is still live, so a timeout is returned only after no live agents remain. Does not return the mailbox content."
+        description: "Wait for a mailbox update from any live agent, including queued messages and final-status notifications. The wait also ends early when new user input is steered into the active turn. Quiet timeout intervals are re-armed internally while another agent is actively running, up to the configured maximum total wait. Interrupted and pending-init agents do not extend the wait. Does not return the mailbox content."
             .to_string(),
         strict: false,
         defer_loading: None,
@@ -526,7 +526,7 @@ fn wait_output_schema_v2() -> Value {
             },
             "timed_out": {
                 "type": "boolean",
-                "description": "Whether no mailbox update arrived and no other agent was still live when the interval elapsed."
+                "description": "Whether no mailbox update arrived before the wait ended because no other agent was actively running or the maximum total wait elapsed."
             }
         },
         "required": ["message", "timed_out"],
@@ -878,8 +878,11 @@ fn wait_agent_tool_parameters_v2(options: WaitAgentTimeoutOptions) -> JsonSchema
     let properties = BTreeMap::from([(
         "timeout_ms".to_string(),
         JsonSchema::number(Some(format!(
-            "Quiet polling interval in milliseconds. Defaults to {}, min {}, max {}. While another agent is live, elapsed intervals are re-armed inside the tool instead of triggering another model turn.",
-            options.default_timeout_ms, options.min_timeout_ms, options.max_timeout_ms,
+            "Quiet polling interval in milliseconds. Defaults to {}, min {}, max {}. While another agent is actively running, elapsed intervals are re-armed inside the tool instead of triggering another model turn. One call is bounded by the configured maximum of {} milliseconds.",
+            options.default_timeout_ms,
+            options.min_timeout_ms,
+            options.max_timeout_ms,
+            options.max_timeout_ms,
         ))),
     )]);
 

@@ -459,12 +459,13 @@ fn wait_agent_tool_v2_describes_event_driven_waiting() {
     assert!(!properties.contains_key("targets"));
     assert!(properties.contains_key("timeout_ms"));
     assert!(description.contains("Quiet timeout intervals are re-armed internally"));
+    assert!(description.contains("Interrupted and pending-init agents do not extend the wait"));
     assert_eq!(
         properties
             .get("timeout_ms")
             .and_then(|schema| schema.description.as_deref()),
         Some(
-            "Quiet polling interval in milliseconds. Defaults to 30000, min 10000, max 3600000. While another agent is live, elapsed intervals are re-armed inside the tool instead of triggering another model turn."
+            "Quiet polling interval in milliseconds. Defaults to 30000, min 10000, max 3600000. While another agent is actively running, elapsed intervals are re-armed inside the tool instead of triggering another model turn. One call is bounded by the configured maximum of 3600000 milliseconds."
         )
     );
     assert_eq!(parameters.required.as_ref(), None);

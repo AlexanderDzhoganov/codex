@@ -1,8 +1,8 @@
 use super::*;
-use crate::agent::status::is_final;
 use crate::session::InputQueueActivity;
 use crate::tools::handlers::multi_agents_spec::WaitAgentTimeoutOptions;
 use crate::tools::handlers::multi_agents_spec::create_wait_agent_tool_v2;
+use codex_protocol::protocol::AgentStatus;
 use codex_tools::ToolSpec;
 use std::collections::HashMap;
 use std::time::Duration;
@@ -93,22 +93,27 @@ impl Handler {
             .await;
 
         let wait_duration = Duration::from_millis(timeout_ms as u64);
+        let wait_deadline = Instant::now() + Duration::from_millis(max_timeout_ms as u64);
         let mut outcome = wait_for_activity(
             &mut activity_rx,
             pending_activity,
-            Instant::now() + wait_duration,
+            (Instant::now() + wait_duration).min(wait_deadline),
         )
         .await;
         // A quiet interval is only a control-plane checkpoint while another agent can still
         // produce mail. Returning it to the model would turn long waits into repeated inference.
+        // Interrupted and pending-init agents cannot independently make progress, and the
+        // configured maximum interval also bounds the total call so a stale running status cannot
+        // hold the parent forever.
         while outcome == WaitOutcome::TimedOut
             && timeout_ms > 0
-            && has_other_live_agents(&session, &turn).await
+            && Instant::now() < wait_deadline
+            && has_other_running_agents(&session, &turn).await
         {
             outcome = wait_for_activity(
                 &mut activity_rx,
                 /*pending_activity*/ None,
-                Instant::now() + wait_duration,
+                (Instant::now() + wait_duration).min(wait_deadline),
             )
             .await;
         }
@@ -136,7 +141,7 @@ impl Handler {
     }
 }
 
-async fn has_other_live_agents(
+async fn has_other_running_agents(
     session: &crate::session::session::Session,
     turn: &crate::session::turn_context::TurnContext,
 ) -> bool {
@@ -155,9 +160,10 @@ async fn has_other_live_agents(
         .list_agents(&turn.session_source, /*path_prefix*/ None)
         .await
         .is_ok_and(|agents| {
-            agents
-                .into_iter()
-                .any(|agent| agent.agent_name != current_agent && !is_final(&agent.agent_status))
+            agents.into_iter().any(|agent| {
+                agent.agent_name != current_agent
+                    && matches!(agent.agent_status, AgentStatus::Running)
+            })
         })
 }
 

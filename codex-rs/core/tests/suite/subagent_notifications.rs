@@ -82,6 +82,7 @@ const MULTI_AGENT_V2_NAMESPACE: &str = "collaboration";
 const TURN_0_FORK_PROMPT: &str = "seed fork context";
 const TURN_1_PROMPT: &str = "spawn a child and continue";
 const TURN_2_NO_WAIT_PROMPT: &str = "follow up without wait";
+const TURN_2_INTERRUPT_AND_WAIT_PROMPT: &str = "interrupt the child and wait";
 const CHILD_PROMPT: &str = "child: do work";
 const INHERITED_MODEL: &str = "gpt-5.5";
 const INHERITED_REASONING_EFFORT: ReasoningEffort = ReasoningEffort::XHigh;
@@ -2575,7 +2576,7 @@ async fn plaintext_multi_agent_v2_completion_sends_agent_message(
                 .enable(Feature::MultiAgentV2)
                 .expect("test config should allow feature update");
             config.multi_agent_v2.min_wait_timeout_ms = 10;
-            config.multi_agent_v2.max_wait_timeout_ms = 10;
+            config.multi_agent_v2.max_wait_timeout_ms = 2_000;
             config.multi_agent_v2.default_wait_timeout_ms = 10;
             config.model_provider.request_max_retries = Some(0);
             config.model_provider.stream_max_retries = Some(0);
@@ -3086,6 +3087,144 @@ async fn multi_agent_v2_peer_followup_completion_notifies_initiating_turn() -> R
                     && item["recipient"] == "/root"
                     && item.to_string().contains("peer follow-up finished")
             })
+    );
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn multi_agent_v2_wait_does_not_rearm_for_interrupted_agent() -> Result<()> {
+    let server = start_mock_server().await;
+    let spawn_args = serde_json::to_string(&json!({
+        "message": CHILD_PROMPT,
+        "task_name": "worker",
+    }))?;
+    mount_sse_once_match(
+        &server,
+        |req: &wiremock::Request| body_contains(req, TURN_1_PROMPT),
+        sse(vec![
+            ev_response_created("resp-parent-1"),
+            ev_function_call_with_namespace(
+                SPAWN_CALL_ID,
+                MULTI_AGENT_V2_NAMESPACE,
+                "spawn_agent",
+                &spawn_args,
+            ),
+            ev_completed("resp-parent-1"),
+        ]),
+    )
+    .await;
+    let child_request = mount_response_once_match(
+        &server,
+        |req: &wiremock::Request| request_has_input_type(req, "agent_message"),
+        sse_response(sse(vec![
+            ev_response_created("resp-child-1"),
+            ev_assistant_message("msg-child-1", "child done"),
+            ev_completed("resp-child-1"),
+        ]))
+        .set_delay(Duration::from_secs(1)),
+    )
+    .await;
+    mount_sse_once_match(
+        &server,
+        |req: &wiremock::Request| {
+            body_contains(req, SPAWN_CALL_ID) && !request_has_input_type(req, "agent_message")
+        },
+        sse(vec![
+            ev_response_created("resp-parent-2"),
+            ev_assistant_message("msg-parent-2", "parent spawned worker"),
+            ev_completed("resp-parent-2"),
+        ]),
+    )
+    .await;
+
+    let interrupt_args = serde_json::to_string(&json!({"target": "/root/worker"}))?;
+    mount_sse_once_match(
+        &server,
+        |req: &wiremock::Request| {
+            body_contains(req, TURN_2_INTERRUPT_AND_WAIT_PROMPT)
+                && !body_contains(req, "interrupt-agent-call")
+        },
+        sse(vec![
+            ev_response_created("resp-parent-3"),
+            ev_function_call_with_namespace(
+                "interrupt-agent-call",
+                MULTI_AGENT_V2_NAMESPACE,
+                "interrupt_agent",
+                &interrupt_args,
+            ),
+            ev_completed("resp-parent-3"),
+        ]),
+    )
+    .await;
+    mount_sse_once_match(
+        &server,
+        |req: &wiremock::Request| {
+            body_contains(req, "interrupt-agent-call") && !body_contains(req, "wait-agent-call")
+        },
+        sse(vec![
+            ev_response_created("resp-parent-4"),
+            ev_function_call_with_namespace(
+                "wait-agent-call",
+                MULTI_AGENT_V2_NAMESPACE,
+                "wait_agent",
+                r#"{"timeout_ms":10}"#,
+            ),
+            ev_completed("resp-parent-4"),
+        ]),
+    )
+    .await;
+    let final_request = mount_sse_once_match(
+        &server,
+        |req: &wiremock::Request| body_contains(req, "wait-agent-call"),
+        sse(vec![
+            ev_response_created("resp-parent-5"),
+            ev_assistant_message("msg-parent-5", "interrupted worker is idle"),
+            ev_completed("resp-parent-5"),
+        ]),
+    )
+    .await;
+
+    let test = test_codex()
+        .with_model("koffing")
+        .with_config(|config| {
+            config
+                .features
+                .enable(Feature::Collab)
+                .expect("test config should allow feature update");
+            config
+                .features
+                .enable(Feature::MultiAgentV2)
+                .expect("test config should allow feature update");
+            config.multi_agent_v2.min_wait_timeout_ms = 10;
+            config.multi_agent_v2.max_wait_timeout_ms = 1_000;
+            config.multi_agent_v2.default_wait_timeout_ms = 10;
+            config.model_provider.supports_websockets = false;
+        })
+        .build(&server)
+        .await?;
+
+    test.submit_turn(TURN_1_PROMPT).await?;
+    let _ = wait_for_requests(&child_request).await?;
+    test.submit_turn(TURN_2_INTERRUPT_AND_WAIT_PROMPT).await?;
+
+    let request = wait_for_requests(&final_request)
+        .await?
+        .pop()
+        .expect("wait result request");
+    let output = request.function_call_output("wait-agent-call");
+    let result: Value = serde_json::from_str(
+        output
+            .get("output")
+            .and_then(Value::as_str)
+            .expect("wait_agent output should be text"),
+    )?;
+    assert_eq!(
+        result,
+        json!({
+            "message": "Wait timed out.",
+            "timed_out": true,
+        })
     );
 
     Ok(())
