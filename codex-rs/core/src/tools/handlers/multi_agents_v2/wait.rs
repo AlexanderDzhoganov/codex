@@ -100,7 +100,7 @@ impl Handler {
             (Instant::now() + wait_duration).min(wait_deadline),
         )
         .await;
-        // A quiet interval is only a control-plane checkpoint while another agent can still
+        // A quiet interval is only a control-plane checkpoint while a descendant can still
         // produce mail. Returning it to the model would turn long waits into repeated inference.
         // Interrupted and pending-init agents cannot independently make progress, and the
         // configured maximum interval also bounds the total call so a stale running status cannot
@@ -108,7 +108,7 @@ impl Handler {
         while outcome == WaitOutcome::TimedOut
             && timeout_ms > 0
             && Instant::now() < wait_deadline
-            && has_other_running_agents(&session, &turn).await
+            && has_running_descendants(&session, &turn).await
         {
             outcome = wait_for_activity(
                 &mut activity_rx,
@@ -141,7 +141,7 @@ impl Handler {
     }
 }
 
-async fn has_other_running_agents(
+async fn has_running_descendants(
     session: &crate::session::session::Session,
     turn: &crate::session::turn_context::TurnContext,
 ) -> bool {
@@ -152,16 +152,15 @@ async fn has_other_running_agents(
     let current_agent = turn
         .session_source
         .get_agent_path()
-        .unwrap_or_else(AgentPath::root)
-        .to_string();
+        .unwrap_or_else(AgentPath::root);
     session
         .services
         .agent_control
-        .list_agents(&turn.session_source, /*path_prefix*/ None)
+        .list_agents(&turn.session_source, Some(current_agent.as_str()))
         .await
         .is_ok_and(|agents| {
             agents.into_iter().any(|agent| {
-                agent.agent_name != current_agent
+                agent.agent_name != current_agent.as_str()
                     && matches!(agent.agent_status, AgentStatus::Running)
             })
         })

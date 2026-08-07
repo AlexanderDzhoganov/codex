@@ -2858,7 +2858,7 @@ async fn wait_agent_rejects_empty_targets() {
 }
 
 #[tokio::test]
-async fn multi_agent_v2_wait_agent_rearms_timeout_while_an_agent_is_live() {
+async fn multi_agent_v2_wait_agent_rearms_timeout_while_a_descendant_is_running() {
     let (mut session, mut turn) = make_session_and_context().await;
     let manager = thread_manager();
     let root = manager
@@ -2951,6 +2951,95 @@ async fn multi_agent_v2_wait_agent_rearms_timeout_while_an_agent_is_live() {
         crate::tools::handlers::multi_agents_v2::wait::WaitAgentResult {
             message: "Wait completed.".to_string(),
             timed_out: false,
+        }
+    );
+    assert_eq!(success, None);
+}
+
+#[tokio::test]
+async fn multi_agent_v2_wait_agent_does_not_rearm_for_running_ancestor_or_sibling() {
+    let (mut session, mut turn) = make_session_and_context().await;
+    let manager = thread_manager();
+    let root = manager
+        .start_thread(StartThreadOptions::new((*turn.config).clone()))
+        .await
+        .expect("root thread should start");
+    session.services.agent_control = manager.agent_control();
+    session.thread_id = root.thread_id;
+    let mut config = (*turn.config).clone();
+    config
+        .features
+        .enable(Feature::MultiAgentV2)
+        .expect("test config should allow feature update");
+    config.multi_agent_v2.min_wait_timeout_ms = 10;
+    config.multi_agent_v2.max_wait_timeout_ms = 1_000;
+    config.multi_agent_v2.default_wait_timeout_ms = 10;
+    set_turn_config(&mut turn, config);
+
+    let worker_path = AgentPath::try_from("/root/worker").expect("worker path");
+    let sibling_path = AgentPath::try_from("/root/sibling").expect("sibling path");
+    let mut worker_id = None;
+    for agent_path in [worker_path.clone(), sibling_path] {
+        let spawned = session
+            .services
+            .agent_control
+            .spawn_agent_with_metadata(
+                (*turn.config).clone(),
+                vec![UserInput::Text {
+                    text: format!("boot {}", agent_path.name()),
+                    text_elements: Vec::new(),
+                }],
+                Some(SessionSource::SubAgent(SubAgentSource::ThreadSpawn {
+                    parent_thread_id: root.thread_id,
+                    depth: 1,
+                    agent_path: Some(agent_path.clone()),
+                    agent_nickname: None,
+                    agent_role: None,
+                })),
+                crate::agent::control::SpawnAgentOptions::default(),
+            )
+            .await
+            .expect("agent spawn should succeed");
+        if agent_path == worker_path {
+            worker_id = Some(spawned.thread_id);
+        }
+    }
+
+    let worker_id = worker_id.expect("worker should spawn");
+    session.thread_id = worker_id;
+    turn.session_source = SessionSource::SubAgent(SubAgentSource::ThreadSpawn {
+        parent_thread_id: root.thread_id,
+        depth: 1,
+        agent_path: Some(worker_path),
+        agent_nickname: None,
+        agent_role: None,
+    });
+
+    let started = Instant::now();
+    let output = timeout(
+        Duration::from_millis(250),
+        WaitAgentHandlerV2::default().handle(invocation(
+            Arc::new(session),
+            Arc::new(turn),
+            "wait_agent",
+            function_payload(json!({"timeout_ms": 10})),
+        )),
+    )
+    .await
+    .expect("a running ancestor or sibling must not extend a leaf wait")
+    .expect("wait_agent should succeed");
+    assert!(
+        started.elapsed() < Duration::from_millis(250),
+        "leaf wait should end after its quiet interval"
+    );
+    let (content, success) = expect_text_output(output);
+    let result: crate::tools::handlers::multi_agents_v2::wait::WaitAgentResult =
+        serde_json::from_str(&content).expect("wait_agent result should be json");
+    assert_eq!(
+        result,
+        crate::tools::handlers::multi_agents_v2::wait::WaitAgentResult {
+            message: "Wait timed out.".to_string(),
+            timed_out: true,
         }
     );
     assert_eq!(success, None);

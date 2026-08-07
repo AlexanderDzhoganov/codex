@@ -3093,6 +3093,126 @@ async fn multi_agent_v2_peer_followup_completion_notifies_initiating_turn() -> R
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn multi_agent_v2_leaf_wait_does_not_rearm_for_running_parent() -> Result<()> {
+    let server = start_mock_server().await;
+    let spawn_args = serde_json::to_string(&json!({
+        "message": CHILD_PROMPT,
+        "task_name": "worker",
+    }))?;
+    mount_sse_once_match(
+        &server,
+        |req: &wiremock::Request| body_contains(req, TURN_1_PROMPT),
+        sse(vec![
+            ev_response_created("resp-parent-1"),
+            ev_function_call_with_namespace(
+                SPAWN_CALL_ID,
+                MULTI_AGENT_V2_NAMESPACE,
+                "spawn_agent",
+                &spawn_args,
+            ),
+            ev_completed("resp-parent-1"),
+        ]),
+    )
+    .await;
+    mount_sse_once_match(
+        &server,
+        |req: &wiremock::Request| {
+            request_has_input_type(req, "agent_message") && !body_contains(req, "leaf-wait-call")
+        },
+        sse(vec![
+            ev_response_created("resp-child-1"),
+            ev_function_call_with_namespace(
+                "leaf-wait-call",
+                MULTI_AGENT_V2_NAMESPACE,
+                "wait_agent",
+                r#"{"timeout_ms":10}"#,
+            ),
+            ev_completed("resp-child-1"),
+        ]),
+    )
+    .await;
+    let child_final_request = mount_sse_once_match(
+        &server,
+        |req: &wiremock::Request| {
+            body_contains(req, "leaf-wait-call")
+                && request_has_input_type(req, "function_call_output")
+        },
+        sse(vec![
+            ev_response_created("resp-child-2"),
+            ev_assistant_message("msg-child-2", "leaf wait ended"),
+            ev_completed("resp-child-2"),
+        ]),
+    )
+    .await;
+    mount_response_once_match(
+        &server,
+        |req: &wiremock::Request| {
+            body_contains(req, SPAWN_CALL_ID) && !request_has_input_type(req, "agent_message")
+        },
+        sse_response(sse(vec![
+            ev_response_created("resp-parent-2"),
+            ev_assistant_message("msg-parent-2", "parent done"),
+            ev_completed("resp-parent-2"),
+        ]))
+        .set_delay(Duration::from_secs(1)),
+    )
+    .await;
+
+    let test = test_codex()
+        .with_model("koffing")
+        .with_config(|config| {
+            config
+                .features
+                .enable(Feature::Collab)
+                .expect("test config should allow feature update");
+            config
+                .features
+                .enable(Feature::MultiAgentV2)
+                .expect("test config should allow feature update");
+            config.multi_agent_v2.min_wait_timeout_ms = 10;
+            config.multi_agent_v2.max_wait_timeout_ms = 1_000;
+            config.multi_agent_v2.default_wait_timeout_ms = 10;
+            config.agent_default_subagent_model = Some(V2_DEFAULT_MODEL.to_string());
+            config.agent_default_subagent_reasoning_effort = Some(V2_DEFAULT_REASONING_EFFORT);
+            config.model_provider.supports_websockets = false;
+        })
+        .build_with_auto_env(&server)
+        .await?;
+
+    let started = Instant::now();
+    let observe_child = async {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            if let Some(output) = child_final_request.function_call_output_text("leaf-wait-call") {
+                break Ok::<_, anyhow::Error>((started.elapsed(), output));
+            }
+            if Instant::now() >= deadline {
+                anyhow::bail!("timed out waiting for leaf wait output");
+            }
+            sleep(Duration::from_millis(10)).await;
+        }
+    };
+    let (submit_result, child_result) =
+        tokio::join!(test.submit_turn(TURN_1_PROMPT), observe_child);
+    submit_result?;
+    let (elapsed, output) = child_result?;
+    assert!(
+        elapsed < Duration::from_millis(500),
+        "a running parent extended a leaf wait to {elapsed:?}"
+    );
+    let result: Value = serde_json::from_str(&output)?;
+    assert_eq!(
+        result,
+        json!({
+            "message": "Wait timed out.",
+            "timed_out": true,
+        })
+    );
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn multi_agent_v2_wait_does_not_rearm_for_interrupted_agent() -> Result<()> {
     let server = start_mock_server().await;
     let spawn_args = serde_json::to_string(&json!({
