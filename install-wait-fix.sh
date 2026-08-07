@@ -4,7 +4,7 @@
 set -euo pipefail
 
 CODEX_FIX_REPO="https://github.com/AlexanderDzhoganov/codex.git"
-CODEX_FIX_REF="${CODEX_FIX_REF:-6dbc6ebb42dbe34c134ab8a7f4b000f50fb2305c}"
+CODEX_FIX_REF="${CODEX_FIX_REF:-48a27a5f9655bf63c4c7224b34db51f043c2abf8}"
 CODEX_FIX_BIN_DIR="$HOME/.local/bin"
 CODEX_FIX_STATE_DIR="$HOME/.local/share/codex-wait-fix"
 CODEX_FIX_STATE_FILE="$CODEX_FIX_STATE_DIR/installed-ref"
