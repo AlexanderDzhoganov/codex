@@ -633,6 +633,15 @@ fn map_wrapped_websocket_error_event(
         return None;
     }
 
+    if status == StatusCode::SERVICE_UNAVAILABLE
+        && error
+            .as_ref()
+            .and_then(|error| error.code.as_deref())
+            .is_some_and(|code| matches!(code, "server_is_overloaded" | "slow_down"))
+    {
+        return Some(ApiError::ServerOverloaded);
+    }
+
     Some(ApiError::Transport(TransportError::Http {
         status,
         url: None,
@@ -1038,6 +1047,25 @@ mod tests {
         let body = body.expect("expected body");
         assert!(body.contains("usage_limit_reached"));
         assert!(body.contains("The usage limit has been reached"));
+    }
+
+    #[test]
+    fn parse_wrapped_websocket_overload_maps_to_server_overloaded() {
+        let payload = json!({
+            "type": "error",
+            "status": 503,
+            "error": {
+                "code": "server_is_overloaded",
+                "message": "This model is disabled."
+            }
+        })
+        .to_string();
+
+        let wrapped_error = parse_wrapped_websocket_error_event(&payload)
+            .expect("expected websocket error payload to be parsed");
+        let api_error = map_wrapped_websocket_error_event(wrapped_error, payload)
+            .expect("expected websocket error payload to map to ApiError");
+        assert!(matches!(api_error, ApiError::ServerOverloaded));
     }
 
     #[test]

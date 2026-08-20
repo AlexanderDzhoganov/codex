@@ -399,7 +399,6 @@ impl CodexErr {
             | CodexErrorDetails::Spawn
             | CodexErrorDetails::SessionConfiguredNotFirstEvent
             | CodexErrorDetails::UsageLimitReached(_)
-            | CodexErrorDetails::ServerOverloaded
             | CodexErrorDetails::CyberPolicy { .. }
             | CodexErrorDetails::BioPolicy { .. }
             | CodexErrorDetails::MisalignmentPolicyViolation { .. } => None,
@@ -414,7 +413,8 @@ impl CodexErr {
             | CodexErrorDetails::InternalAgentDied
             | CodexErrorDetails::Io(_)
             | CodexErrorDetails::Json(_)
-            | CodexErrorDetails::TokioJoin(_) => Some(
+            | CodexErrorDetails::TokioJoin(_)
+            | CodexErrorDetails::ServerOverloaded => Some(
                 self.server_retry_delay
                     .unwrap_or_else(|| backoff(retry_count)),
             ),
