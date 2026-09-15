@@ -1,0 +1,10 @@
+---
+source: tui/src/app/tests/automatic_model_switching_tests.rs
+expression: "normalize_snapshot_paths(render_bottom_popup(&app.chat_widget, 80))"
+---
+  Usage limit reached
+  Your included usage is exhausted. Choose an option below to continue.
+
+› 1. Add credits
+
+  Press enter to confirm or esc to go back

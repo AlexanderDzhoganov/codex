@@ -96,6 +96,8 @@ pub enum Feature {
     /// Enable the interactive transcript composer and turn-selection UI.
     TranscriptV2,
     // Stable.
+    /// Allow usage-limit responses to switch the selected TUI model automatically.
+    AutomaticModelSwitching,
     /// Enable the default shell tool.
     ShellTool,
     /// Enable the built-in local image viewer.
@@ -913,6 +915,12 @@ pub const FEATURES: &[FeatureSpec] = &[
         default_enabled: false,
     },
     // Stable features.
+    FeatureSpec {
+        id: Feature::AutomaticModelSwitching,
+        key: "automatic_model_switching",
+        stage: Stage::Stable,
+        default_enabled: true,
+    },
     FeatureSpec {
         id: Feature::GhostCommit,
         key: "undo",

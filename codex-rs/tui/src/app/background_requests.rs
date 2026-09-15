@@ -97,8 +97,16 @@ impl App {
         };
         let request_handle = app_server.request_handle();
         let app_event_tx = self.app_event_tx.clone();
+        let params = GetAccountRateLimitsParams {
+            supports_luna_reserve: self
+                .chat_widget
+                .config_ref()
+                .features
+                .enabled(Feature::AutomaticModelSwitching),
+            exclude_reset_credit_details: origin == RateLimitRefreshOrigin::Periodic,
+        };
         tokio::spawn(async move {
-            let request = fetch_account_rate_limits(request_handle, origin);
+            let request = fetch_account_rate_limits(request_handle, params);
             let result = match origin {
                 RateLimitRefreshOrigin::Recovery
                 | RateLimitRefreshOrigin::Periodic
@@ -801,16 +809,13 @@ pub(super) async fn fetch_all_mcp_server_statuses(
 
 pub(super) async fn fetch_account_rate_limits(
     request_handle: AppServerRequestHandle,
-    origin: RateLimitRefreshOrigin,
+    params: GetAccountRateLimitsParams,
 ) -> Result<GetAccountRateLimitsResponse> {
     let request_id = RequestId::String(format!("account-rate-limits-{}", Uuid::new_v4()));
     let result = request_handle
         .request_typed(ClientRequest::GetAccountRateLimits {
             request_id: request_id.clone(),
-            params: Some(GetAccountRateLimitsParams {
-                supports_luna_reserve: true,
-                exclude_reset_credit_details: origin == RateLimitRefreshOrigin::Periodic,
-            }),
+            params: Some(params),
         })
         .await;
     // Older remote app servers accept only null params. Keep their usage reads working

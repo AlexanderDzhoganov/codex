@@ -1,0 +1,13 @@
+---
+source: tui/src/app/tests/automatic_model_switching_tests.rs
+expression: "normalize_snapshot_paths(render_bottom_popup(&app.chat_widget, 80))"
+---
+  Selected model usage exhausted
+  Add credits to use this model again.
+› 1. View usage
+
+  Press a number to choose · esc to dismiss · type to continue
+
+› Ask Codex to do anything
+
+  gpt-5.5 high · /tmp/project

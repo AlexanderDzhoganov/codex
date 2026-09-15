@@ -19,6 +19,7 @@ use crate::bottom_pane::popup_consts::accept_cancel_hint_line;
 use crate::keymap::ListAction;
 use crate::model_catalog::LUNA_RESERVE_MODEL;
 use codex_app_server_protocol::GetAccountRateLimitsResponse;
+use codex_features::Feature;
 use codex_protocol::config_types::CollaborationMode;
 use codex_protocol::config_types::ModeKind;
 use codex_protocol::openai_models::ModelPreset;
@@ -61,7 +62,10 @@ pub(super) struct BackendBannerState {
 impl ChatWidget {
     pub(super) fn restrict_model_picker_to_luna_reserve(&self) -> bool {
         // A fresh account read can allow manual recovery even without a valid saved return model.
-        self.current_model() == LUNA_RESERVE_MODEL
+        self.config
+            .features
+            .enabled(Feature::AutomaticModelSwitching)
+            && self.current_model() == LUNA_RESERVE_MODEL
             && !self.backend_banner_state.ordinary_usage_recovered
     }
 
@@ -71,7 +75,10 @@ impl ChatWidget {
     }
 
     pub(super) fn waiting_for_luna_reserve(&self) -> bool {
-        self.current_model() != LUNA_RESERVE_MODEL
+        self.config
+            .features
+            .enabled(Feature::AutomaticModelSwitching)
+            && self.current_model() != LUNA_RESERVE_MODEL
             && self
                 .backend_banner_state
                 .banner
@@ -80,7 +87,13 @@ impl ChatWidget {
     }
 
     pub(crate) fn backend_banner_fallback(&mut self) -> Option<AutomaticModelSwitch> {
-        if !self.has_chatgpt_account || !self.requires_openai_auth {
+        if !self
+            .config
+            .features
+            .enabled(Feature::AutomaticModelSwitching)
+            || !self.has_chatgpt_account
+            || !self.requires_openai_auth
+        {
             return None;
         }
         if self.current_model() == LUNA_RESERVE_MODEL
@@ -281,7 +294,12 @@ impl ChatWidget {
         else {
             return;
         };
-        if self.automatic_model_switch_state.replaced_model.as_deref() != Some(model.as_str()) {
+        if !self
+            .config
+            .features
+            .enabled(Feature::AutomaticModelSwitching)
+            || self.automatic_model_switch_state.replaced_model.as_deref() != Some(model.as_str())
+        {
             return;
         }
         *model = self.current_model().to_string();
@@ -393,6 +411,14 @@ impl ChatWidget {
             }
             // Explicit fallback payloads describe the selected replacement, not a pending switch.
             let matches_selected_model = match banner.blocked_model_slug.as_deref() {
+                Some(blocked)
+                    if !self
+                        .config
+                        .features
+                        .enabled(Feature::AutomaticModelSwitching) =>
+                {
+                    blocked == self.current_model()
+                }
                 Some(blocked) if !banner.fallback_model_slugs.is_empty() => {
                     blocked != self.current_model()
                         && banner

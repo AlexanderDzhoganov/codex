@@ -9,6 +9,8 @@ mod math_interruption_tests;
 mod advanced_reasoning_tests;
 #[path = "tests/agents_navigation_tests.rs"]
 mod agents_navigation_tests;
+#[path = "tests/automatic_model_switching_tests.rs"]
+mod automatic_model_switching_tests;
 #[path = "tests/backend_banner_fallback_tests.rs"]
 mod backend_banner_fallback_tests;
 #[path = "tests/backend_banner_recovery_tests.rs"]
