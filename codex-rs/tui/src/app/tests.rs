@@ -11,6 +11,8 @@ mod advanced_reasoning_tests;
 mod agents_navigation_tests;
 #[path = "tests/approvals_reviewer_error_tests.rs"]
 mod approvals_reviewer_error_tests;
+#[path = "tests/automatic_model_switching_tests.rs"]
+mod automatic_model_switching_tests;
 #[path = "tests/backend_banner_fallback_tests.rs"]
 mod backend_banner_fallback_tests;
 #[path = "tests/backend_banner_recovery_tests.rs"]

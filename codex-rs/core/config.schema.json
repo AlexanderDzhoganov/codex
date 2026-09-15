@@ -686,6 +686,9 @@
             "auth_elicitation": {
               "type": "boolean"
             },
+            "automatic_model_switching": {
+              "type": "boolean"
+            },
             "background_paginated_rollout_migration": {
               "type": "boolean"
             },
@@ -6470,6 +6473,9 @@
           ]
         },
         "auth_elicitation": {
+          "type": "boolean"
+        },
+        "automatic_model_switching": {
           "type": "boolean"
         },
         "background_paginated_rollout_migration": {
