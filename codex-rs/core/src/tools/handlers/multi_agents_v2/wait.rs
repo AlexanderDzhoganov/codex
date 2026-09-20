@@ -2,6 +2,7 @@ use super::*;
 use crate::session::InputQueueActivity;
 use crate::tools::handlers::multi_agents_spec::WaitAgentTimeoutOptions;
 use crate::tools::handlers::multi_agents_spec::create_wait_agent_tool_v2;
+use codex_protocol::AgentPath;
 use codex_protocol::protocol::AgentStatus;
 use codex_tools::ToolSpec;
 use std::collections::HashMap;
@@ -160,8 +161,7 @@ async fn has_running_descendants(
         .await
         .is_ok_and(|agents| {
             agents.into_iter().any(|agent| {
-                agent.agent_name != current_agent.as_str()
-                    && matches!(agent.agent_status, AgentStatus::Running)
+                agent.thread_id != session.thread_id && matches!(agent.status, AgentStatus::Running)
             })
         })
 }
