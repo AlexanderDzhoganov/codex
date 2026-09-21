@@ -110,9 +110,18 @@ pub(crate) async fn handle_response_stream_error(
         return Ok(());
     }
 
-    if retry_state.retries < max_retries {
+    let retry_capacity_error = matches!(err.details(), CodexErrorDetails::ServerOverloaded);
+    if retry_capacity_error || retry_state.retries < max_retries {
         retry_state.retries = retry_count;
-        log_retry(request, turn_context, &err, retry_count, max_retries, delay);
+        let displayed_max_retries = max_retries.max(retry_count);
+        log_retry(
+            request,
+            turn_context,
+            &err,
+            retry_count,
+            displayed_max_retries,
+            delay,
+        );
 
         // In release builds, hide the first websocket retry notification to reduce noisy
         // transient reconnect messages. In debug builds, keep full visibility for diagnosis.
@@ -124,7 +133,11 @@ pub(crate) async fn handle_response_stream_error(
             // happening instead of staring at a seemingly frozen screen.
             sess.notify_stream_error(
                 turn_context,
-                format!("Reconnecting... {retry_count}/{max_retries}"),
+                if retry_capacity_error {
+                    "Model is at capacity; retrying...".to_string()
+                } else {
+                    format!("Reconnecting... {retry_count}/{max_retries}")
+                },
                 err,
             )
             .await;
