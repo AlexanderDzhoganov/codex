@@ -12,16 +12,8 @@ impl ChatComposer {
             .is_some_and(|area| area.contains(position))
     }
 
-    pub(super) fn show_warning_notice(&self, options: ComposerRenderOptions<'_>) -> bool {
-        options.warning_count > 0
-            && !options.footer.is_some_and(|footer| footer.is_interactive)
-            && matches!(self.popups.active, ActivePopup::None)
-            && super::super::footer::shows_passive_footer_line(&self.footer_props())
-            && self.footer.hint_override.is_none()
-            && !self.footer.flash_visible()
-            && self.history_search.is_none()
-            && self.draft.textarea.vim_query().is_none()
-            && !self.quit_shortcut_hint_visible()
+    pub(super) fn show_warning_notice(&self, _options: ComposerRenderOptions<'_>) -> bool {
+        false
     }
 
     pub(super) fn warning_notice_layout(
