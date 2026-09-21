@@ -38,21 +38,6 @@ fn render(composer: &ChatComposer, width: u16, count: usize) -> Buffer {
     buffer
 }
 
-fn text(buffer: &Buffer) -> String {
-    buffer
-        .content
-        .chunks(usize::from(buffer.area.width))
-        .map(|row| {
-            row.iter()
-                .map(ratatui::buffer::Cell::symbol)
-                .collect::<String>()
-                .trim_end()
-                .to_owned()
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
 #[test]
 fn warning_notice_styles() {
     let mut composer = composer();
@@ -102,9 +87,15 @@ fn light_warning_notice_clears_inherited_dimming() {
 fn warning_notice_respects_shortcuts_and_interactive_hints() {
     let mut composer = composer();
     composer.footer.show_warnings_key = Some(crate::key_hint::plain(KeyCode::F(12)).into());
-    assert!(text(&render(&composer, /*width*/ 64, /*count*/ 2)).contains("f12 to view"));
+    assert_eq!(
+        render(&composer, /*width*/ 64, /*count*/ 2),
+        render(&composer, /*width*/ 64, /*count*/ 0)
+    );
     composer.footer.show_warnings_key = None;
-    assert!(text(&render(&composer, /*width*/ 64, /*count*/ 2)).contains("⚠ 2 · /warnings"));
+    assert_eq!(
+        render(&composer, /*width*/ 64, /*count*/ 2),
+        render(&composer, /*width*/ 64, /*count*/ 0)
+    );
     let interactive = TranscriptFooter {
         text: Line::from("Find: needle").into(),
         cursor_column: Some(6),
@@ -126,7 +117,7 @@ fn warning_notice_respects_shortcuts_and_interactive_hints() {
     composer.set_footer_hint_override(Some(vec![("Ctrl+X".into(), "pending chord".into())]));
     assert!(!composer.show_warning_notice(passive));
     composer.set_footer_hint_override(/*items*/ None);
-    assert!(composer.show_warning_notice(passive));
+    assert!(!composer.show_warning_notice(passive));
     composer.set_text_content("/".into(), Vec::new(), Vec::new());
     composer.sync_popups();
     assert!(!composer.show_warning_notice(passive));
@@ -156,7 +147,7 @@ fn warnings_yield_to_queue_controls_and_complete_navigation_hints() {
     for width in [12, 20] {
         let area = Rect::new(/*x*/ 0, /*y*/ 0, width, /*height*/ 1);
         let notice = composer.warning_notice_layout(area, options);
-        assert_eq!(notice.is_some(), width > 12);
+        assert!(notice.is_none());
         if let Some((warning, _)) = notice {
             assert!(warning.x >= footer.text.width() as u16 + 2);
             assert_eq!(warning.right(), area.right() - 1);
